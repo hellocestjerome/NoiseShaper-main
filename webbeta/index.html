@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Noise Shaper Web</title>
+    <link rel="stylesheet" href="css/main.css" />
+    <link rel="stylesheet" href="css/components.css" />
+  </head>
+  <body>
+    <div class="app-container">
+      <!-- Sidebar - Configuration -->
+      <div class="sidebar">
+        <div class="logo-container">
+          <h1>Noise Shaper</h1>
+          <div class="version">v1.0.0 Web</div>
+        </div>
+
+        <!-- Source Panel -->
+        <div class="panel source-panel">
+          <h2>Source</h2>
+          <div class="panel-content">
+            <div class="form-group">
+              <label for="source-type">Type de source:</label>
+              <select id="source-type">
+                <option value="white" selected>Bruit blanc</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="amplitude">Amplitude:</label>
+              <input
+                type="range"
+                id="amplitude"
+                min="0"
+                max="1"
+                step="0.01"
+                value="0.5"
+              />
+              <span class="value-display" id="amplitude-value">0.5</span>
+            </div>
+            <div class="form-group playback-controls">
+              <button id="play-button" class="play-button">Play</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Analyzer Panel -->
+        <div class="panel analyzer-panel">
+          <h2>Analyseur</h2>
+          <div class="panel-content">
+            <div class="form-group">
+              <label for="fft-size">Taille FFT:</label>
+              <select id="fft-size">
+                <option value="512">512</option>
+                <option value="1024">1024</option>
+                <option value="2048" selected>2048</option>
+                <option value="4096">4096</option>
+                <option value="8192">8192</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="window-type">Type de fenêtre:</label>
+              <select id="window-type">
+                <option value="hanning" selected>Hanning</option>
+                <option value="hamming">Hamming</option>
+                <option value="blackman">Blackman</option>
+                <option value="rectangular">Rectangulaire</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="scale-type">Échelle:</label>
+              <select id="scale-type">
+                <option value="linear" selected>Linéaire</option>
+                <option value="logarithmic">Logarithmique</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="averaging">Moyennage:</label>
+              <input
+                type="range"
+                id="averaging"
+                min="1"
+                max="20"
+                step="1"
+                value="4"
+              />
+              <span class="value-display" id="averaging-value">4</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Filter Panel -->
+        <div class="panel filter-panel">
+          <h2>Filtres</h2>
+          <div class="panel-content">
+            <div class="filter-list" id="filter-list">
+              <!-- Les filtres seront ajoutés ici par JavaScript -->
+            </div>
+            <div class="form-group add-filter">
+              <label for="filter-type">Type de filtre:</label>
+              <select id="filter-type">
+                <option value="bandpass">Passe-bande</option>
+                <option value="lowpass">Passe-bas</option>
+                <option value="highpass">Passe-haut</option>
+                <option value="notch">Coupe-bande</option>
+                <option value="gaussian">Gaussien</option>
+              </select>
+              <button id="add-filter-button">Ajouter</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main Content - Visualization -->
+      <div class="main-content">
+        <canvas id="spectrum-canvas"></canvas>
+      </div>
+    </div>
+
+    <!-- Script imports -->
+    <script src="js/audio/context.js"></script>
+    <script src="js/audio/noise.js"></script>
+    <script src="js/visualizer/analyzer.js"></script>
+    <script src="js/visualizer/renderer.js"></script>
+    <script src="js/ui/controls.js"></script>
+    <script src="js/ui/events.js"></script>
+    <script src="js/main.js"></script>
+  </body>
+</html>
