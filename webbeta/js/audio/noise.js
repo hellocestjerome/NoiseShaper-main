@@ -11,6 +11,7 @@ class WhiteNoiseGenerator {
         this.filters = [];
         this.bufferSize = 4096; // Taille optimale pour un bon compromis latence/performance
         this.amplitude = 0.5;
+        this.rngType = 'uniform'; // Type de RNG par défaut: 'uniform' ou 'standard_normal'
 
         // Nœuds principaux
         this.noiseNode = null;
@@ -75,10 +76,35 @@ class WhiteNoiseGenerator {
             const outputBuffer = audioProcessingEvent.outputBuffer;
             const outputData = outputBuffer.getChannelData(0);
 
-            // Générer du bruit blanc
-            for (let i = 0; i < outputData.length; i++) {
-                // Valeur aléatoire entre -1 et 1
-                outputData[i] = Math.random() * 2 - 1;
+            // Générer du bruit selon le type de RNG sélectionné
+            if (this.rngType === 'uniform') {
+                // Distribution uniforme (valeur aléatoire entre -1 et 1)
+                for (let i = 0; i < outputData.length; i++) {
+                    outputData[i] = Math.random() * 2 - 1;
+                }
+            } else if (this.rngType === 'standard_normal') {
+                // Distribution normale (algorithme Box-Muller)
+                for (let i = 0; i < outputData.length; i += 2) {
+                    // Générer deux nombres aléatoires indépendants
+                    let u1, u2;
+                    do {
+                        u1 = Math.random();
+                        u2 = Math.random();
+                    } while (u1 <= Number.EPSILON); // Éviter le logarithme de zéro
+
+                    // Appliquer la transformation Box-Muller
+                    const mag = Math.sqrt(-2.0 * Math.log(u1));
+                    const z0 = mag * Math.cos(2.0 * Math.PI * u2);
+                    const z1 = mag * Math.sin(2.0 * Math.PI * u2);
+
+                    // Limiter l'amplitude à [-1, 1] en divisant par 3 (3 écarts-types couvrent ~99.7%)
+                    outputData[i] = z0 / 3;
+
+                    // S'assurer qu'on ne dépasse pas la taille du buffer
+                    if (i + 1 < outputData.length) {
+                        outputData[i + 1] = z1 / 3;
+                    }
+                }
             }
 
             // Appliquer les filtres si nécessaire
@@ -152,6 +178,24 @@ class WhiteNoiseGenerator {
             this.analyserData = new Uint8Array(this.analyserNode.frequencyBinCount);
             this.freqData = new Float32Array(this.analyserNode.frequencyBinCount);
         }
+    }
+
+    /**
+     * Change le type de générateur de nombres aléatoires
+     * @param {string} type - Type de RNG ('uniform' ou 'standard_normal')
+     */
+    setRngType(type) {
+        if (type !== 'uniform' && type !== 'standard_normal') {
+            console.warn(`Type de RNG non reconnu: ${type}. Utilisation de 'uniform' par défaut.`);
+            type = 'uniform';
+        }
+
+        // Mettre à jour le type de RNG
+        this.rngType = type;
+        console.log(`Type de RNG changé pour: ${type}`);
+
+        // Si le générateur est en cours d'exécution, il sera mis à jour lors du prochain buffer
+        // Pas besoin de redémarrer le nœud
     }
 
     /**

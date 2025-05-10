@@ -77,6 +77,14 @@ class AppEvents {
             this.noiseGenerator.setAmplitude(amplitude);
         });
 
+        // Événements de changement de type de RNG
+        document.addEventListener('rng-type-change', (event) => {
+            if (!this.noiseGenerator) return;
+
+            const rngType = event.detail.rngType;
+            this.noiseGenerator.setRngType(rngType);
+        });
+
         // Événements de changement d'analyseur
         document.addEventListener('analyzer-change', (event) => {
             this.updateAnalyzerSettings(event.detail);

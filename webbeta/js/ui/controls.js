@@ -7,6 +7,7 @@ class UIControls {
     constructor() {
         // Référence aux éléments du DOM
         this.sourceType = document.getElementById('source-type');
+        this.rngType = document.getElementById('rng-type');
         this.amplitude = document.getElementById('amplitude');
         this.amplitudeValue = document.getElementById('amplitude-value');
         this.playButton = document.getElementById('play-button');
@@ -42,6 +43,10 @@ class UIControls {
         // Événements de source
         if (this.sourceType) {
             this.sourceType.addEventListener('change', () => this.onSourceTypeChange());
+        }
+
+        if (this.rngType) {
+            this.rngType.addEventListener('change', () => this.onRngTypeChange());
         }
 
         if (this.amplitude) {
@@ -115,6 +120,26 @@ class UIControls {
         // Déclencher l'événement pour informer les autres composants
         const event = new CustomEvent('source-type-change', {
             detail: { sourceType: this.sourceType.value }
+        });
+        document.dispatchEvent(event);
+    }
+
+    /**
+     * Appelé lors du changement de type de RNG
+     */
+    onRngTypeChange() {
+        // Récupérer la valeur sélectionnée
+        const rngType = this.rngType.value;
+
+        // Si en cours de lecture, redémarrer le générateur pour appliquer le changement
+        if (this.isPlaying) {
+            this.onPlayToggle();
+            this.onPlayToggle();
+        }
+
+        // Déclencher l'événement pour informer les autres composants
+        const event = new CustomEvent('rng-type-change', {
+            detail: { rngType: rngType }
         });
         document.dispatchEvent(event);
     }
