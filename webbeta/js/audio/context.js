@@ -74,7 +74,7 @@ class AudioContextManager {
 const audioConfig = {
     // Paramètres audio
     sampleRate: 44100,
-    fftSize: 2048,
+    fftSize: 256,
     minDecibels: -90,
     maxDecibels: 0,
     smoothingTimeConstant: 0.85,
@@ -85,7 +85,7 @@ const audioConfig = {
     averagingCount: 4,
 
     // Paramètres de bruit
-    amplitude: 0.5,
+    amplitude: 1,
 
     // Paramètres de filtres 
     filters: []

@@ -10,7 +10,7 @@ class WhiteNoiseGenerator {
         this.isPlaying = false;
         this.filters = [];
         this.bufferSize = 4096; // Taille optimale pour un bon compromis latence/performance
-        this.amplitude = 0.5;
+        this.amplitude = 1;
         this.rngType = 'uniform'; // Type de RNG par défaut: 'uniform' ou 'standard_normal'
 
         // Nœuds principaux
@@ -21,6 +21,10 @@ class WhiteNoiseGenerator {
         // Buffer pour l'analyse
         this.analyserData = null;
         this.freqData = null;
+
+        // État du processeur AudioWorklet
+        this.workletReady = false;
+        this._workletPromise = null;
 
         this._initializeNodes();
     }
@@ -50,21 +54,97 @@ class WhiteNoiseGenerator {
     }
 
     /**
+     * Charge le module AudioWorklet pour le générateur de bruit
+     * @returns {Promise} Promesse résolue lorsque le worklet est chargé
+     */
+    _loadNoiseWorklet() {
+        // Si déjà initialisé ou en cours d'initialisation, retourner la promesse existante
+        if (this.workletReady) {
+            return Promise.resolve();
+        }
+
+        if (this._workletPromise) {
+            return this._workletPromise;
+        }
+
+        // Vérifier si nous sommes sur le protocole file://
+        if (window.location.protocol === 'file:') {
+            console.warn("Protocole file:// détecté - AudioWorklet désactivé, utilisation du ScriptProcessorNode.");
+            this.workletReady = false;
+            return Promise.resolve();
+        }
+
+        // Vérifier la disponibilité d'AudioWorklet
+        if (!this.audioContext.audioWorklet) {
+            console.warn("AudioWorklet n'est pas supporté par ce navigateur. Utilisation du ScriptProcessorNode déprécié.");
+            return Promise.resolve();
+        }
+
+        // En mode HTTP, nous pouvons utiliser AudioWorklet
+        console.log("Tentative de chargement de l'AudioWorklet...");
+        const useHttp = (window.location.protocol === 'http:' || window.location.protocol === 'https:');
+
+        // Créer une nouvelle promesse pour charger le module
+        this._workletPromise = this.audioContext.audioWorklet.addModule(useHttp ? 'worklets/noise-processor.js' : null)
+            .then(() => {
+                console.log("Module AudioWorklet chargé avec succès");
+                this.workletReady = true;
+            })
+            .catch(error => {
+                console.error("Erreur lors du chargement du module AudioWorklet:", error);
+                console.warn("Passage au ScriptProcessorNode comme fallback");
+                this.workletReady = false;
+            });
+
+        return this._workletPromise;
+    }
+
+    /**
      * Initialise le nœud de bruit (remplacé à chaque start)
      */
-    _createNoiseNode() {
-        // Utiliser ScriptProcessorNode (pour compatibilité) ou AudioWorklet si disponible
+    async _createNoiseNode() {
+        // Déconnecter l'ancien nœud s'il existe
         if (this.noiseNode) {
             this.noiseNode.disconnect();
         }
 
-        if (this.audioContext.audioWorklet && false) { // Désactivé pour la première version
-            // Utiliser un AudioWorklet pour une meilleure performance
-            // TODO: Implémenter avec AudioWorklet
-            console.log("AudioWorklet planifié pour une future version");
+        // Essayer d'utiliser AudioWorklet si disponible
+        try {
+            // Charger le worklet si nécessaire
+            await this._loadNoiseWorklet();
+
+            if (this.workletReady) {
+                // Créer un AudioWorkletNode avec notre processeur de bruit
+                this.noiseNode = new AudioWorkletNode(this.audioContext, 'noise-processor');
+
+                // Configurer le type de RNG
+                this.noiseNode.port.postMessage({
+                    type: 'set-rng-type',
+                    data: { rngType: this.rngType }
+                });
+
+                console.log("Utilisation de l'AudioWorklet pour la génération de bruit");
+            } else {
+                // Fallback à ScriptProcessorNode si AudioWorklet n'est pas disponible
+                this._createScriptProcessorNode();
+            }
+        } catch (error) {
+            console.warn("Erreur lors de la création de l'AudioWorkletNode:", error);
+            // Fallback à ScriptProcessorNode
+            this._createScriptProcessorNode();
         }
 
-        // Fallback à ScriptProcessorNode
+        // Connecter à la chaîne
+        this.noiseNode.connect(this.gainNode);
+    }
+
+    /**
+     * Crée un ScriptProcessorNode (méthode de fallback)
+     */
+    _createScriptProcessorNode() {
+        console.warn("Utilisation du ScriptProcessorNode déprécié (fallback)");
+
+        // Créer un ScriptProcessorNode
         this.noiseNode = this.audioContext.createScriptProcessor(
             this.bufferSize,
             1, // mono input
@@ -110,9 +190,6 @@ class WhiteNoiseGenerator {
             // Appliquer les filtres si nécessaire
             this._applyFilters(outputData);
         };
-
-        // Connecter à la chaîne
-        this.noiseNode.connect(this.gainNode);
     }
 
     /**
@@ -130,14 +207,18 @@ class WhiteNoiseGenerator {
     /**
      * Démarre la génération de bruit
      */
-    start() {
+    async start() {
         if (this.isPlaying) return;
 
-        // Créer un nouveau nœud de bruit
-        this._createNoiseNode();
+        try {
+            // Créer un nouveau nœud de bruit (fonction asynchrone)
+            await this._createNoiseNode();
 
-        this.isPlaying = true;
-        console.log("Génération de bruit démarrée");
+            this.isPlaying = true;
+            console.log("Génération de bruit démarrée");
+        } catch (error) {
+            console.error("Erreur lors du démarrage de la génération de bruit:", error);
+        }
     }
 
     /**
@@ -190,12 +271,19 @@ class WhiteNoiseGenerator {
             type = 'uniform';
         }
 
-        // Mettre à jour le type de RNG
+        // Mettre à jour le type de RNG localement
         this.rngType = type;
         console.log(`Type de RNG changé pour: ${type}`);
 
-        // Si le générateur est en cours d'exécution, il sera mis à jour lors du prochain buffer
-        // Pas besoin de redémarrer le nœud
+        // Si nous utilisons un AudioWorkletNode, envoyer le message de mise à jour
+        if (this.workletReady && this.noiseNode && 'port' in this.noiseNode) {
+            this.noiseNode.port.postMessage({
+                type: 'set-rng-type',
+                data: { rngType: type }
+            });
+        }
+
+        // Pour ScriptProcessorNode, les changements seront appliqués au prochain cycle
     }
 
     /**
