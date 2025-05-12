@@ -12,7 +12,7 @@
       <!-- Sidebar - Configuration -->
       <div class="sidebar">
         <div class="logo-container">
-          <h1>Noise Shaper</h1>
+          <h1>Noise Shaper V2</h1>
           <div class="version">v1.0.0 Web</div>
         </div>
 
@@ -107,11 +107,12 @@
             <div class="form-group add-filter">
               <label for="filter-type">Type de filtre:</label>
               <select id="filter-type">
-                <option value="bandpass">Passe-bande</option>
-                <option value="lowpass">Passe-bas</option>
-                <option value="highpass">Passe-haut</option>
+                <option value="bandpass">Bandpass</option>
+                <option value="lowpass">Lowpass</option>
+                <option value="highpass">Hightpass</option>
                 <option value="notch">Coupe-bande</option>
                 <option value="gaussian">Gaussien</option>
+                <option value="plateau">Plateau</option>
               </select>
               <button id="add-filter-button">Ajouter</button>
             </div>
@@ -127,6 +128,7 @@
 
     <!-- Script imports -->
     <script src="js/audio/context.js"></script>
+    <script src="js/audio/filters/plateau.js"></script>
     <script src="js/audio/noise.js"></script>
     <script src="js/visualizer/analyzer.js"></script>
     <script src="js/visualizer/renderer.js"></script>

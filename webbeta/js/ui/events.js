@@ -96,11 +96,22 @@ class AppEvents {
 
             const filter = event.detail.filter;
             this.noiseGenerator.addFilter(filter);
+
+            // Si c'est un filtre Plateau, mettre à jour la visualisation
+            if (filter.type === 'plateau' && this.spectrumRenderer) {
+                this.updatePlateauVisualization(filter);
+            }
         });
 
         document.addEventListener('filter-update', (event) => {
             // La mise à jour est gérée directement par le générateur de bruit
             // via la référence aux filtres
+
+            // Si c'est un filtre Plateau, mettre à jour la visualisation
+            const filter = event.detail.filter;
+            if (filter && filter.type === 'plateau' && this.spectrumRenderer) {
+                this.updatePlateauVisualization(filter);
+            }
         });
 
         document.addEventListener('filter-remove', (event) => {
@@ -109,8 +120,18 @@ class AppEvents {
             const filterId = event.detail.filterId;
             const filterIndex = this.noiseGenerator.filters.findIndex(f => f.params.id === filterId);
 
+            // Vérifier si c'est un filtre Plateau avant de le supprimer
+            const isPlateauFilter = filterIndex !== -1 &&
+                this.noiseGenerator.filters[filterIndex].params.type === 'plateau';
+
             if (filterIndex !== -1) {
                 this.noiseGenerator.removeFilter(filterIndex);
+
+                // Si c'était un filtre Plateau, effacer la visualisation
+                if (isPlateauFilter && this.spectrumRenderer) {
+                    this.spectrumRenderer.setFilterResponse(null);
+                    this.spectrumRenderer.render();
+                }
             }
         });
 
@@ -208,6 +229,37 @@ class AppEvents {
             cancelAnimationFrame(this.animationId);
             this.animationId = null;
         }
+    }
+
+    /**
+     * Met à jour la visualisation d'un filtre Plateau
+     * @param {Object} plateauFilter - Paramètres du filtre Plateau
+     */
+    updatePlateauVisualization(plateauFilter) {
+        if (!this.spectrumRenderer || !plateauFilter) return;
+
+        // Récupérer une référence au filtre dans le generateur de bruit
+        const filterIndex = this.noiseGenerator.filters.findIndex(f =>
+            f.params.id === plateauFilter.id && f.params.type === 'plateau');
+
+        if (filterIndex === -1) return;
+
+        // Récupérer l'objet du filtre depuis le générateur de bruit
+        const filterObject = this.noiseGenerator.filters[filterIndex].node;
+
+        if (!filterObject || typeof filterObject.calculateFrequencyResponse !== 'function') {
+            console.warn('Le filtre ne possède pas la méthode calculateFrequencyResponse');
+            return;
+        }
+
+        // Calculer la réponse en fréquence du filtre
+        const filterResponse = filterObject.calculateFrequencyResponse(20, 20000, 1000);
+
+        // Mettre à jour la visualisation
+        this.spectrumRenderer.setFilterResponse(filterResponse);
+        this.spectrumRenderer.render();
+
+        console.log("Visualisation du filtre Plateau mise à jour:", filterResponse);
     }
 
     /**

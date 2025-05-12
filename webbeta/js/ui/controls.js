@@ -200,6 +200,7 @@ class UIControls {
      * Appelé lors de l'ajout d'un nouveau filtre
      */
     onAddFilter() {
+
         const filterType = this.filterType.value;
         const filterId = this.nextFilterId++;
 
@@ -227,10 +228,12 @@ class UIControls {
             case 'bandpass':
                 params = {
                     ...params,
-                    frequency: 1000,
-                    q: 1.0,
-                    gain: 1.0
+                    lowcut: 500,     // Fréquence de coupure basse
+                    highcut: 2000,   // Fréquence de coupure haute
+                    order: 4,        // Ordre du filtre
+                    gain: 1.0        // Gain du filtre
                 };
+                console.log("Ajout d'un filtre Bandpass avec paramètres:", params);
                 break;
             case 'notch':
                 params = {
@@ -247,6 +250,16 @@ class UIControls {
                     width: 100,
                     gain: 1.0
                 };
+                break;
+            case 'plateau':
+                params = {
+                    ...params,
+                    frequency: 10000,
+                    width: 5000,
+                    flatWidth: 2000,
+                    gain: 0.0
+                };
+                console.log("Ajout d'un filtre Plateau avec paramètres:", params);
                 break;
         }
 
@@ -285,7 +298,6 @@ class UIControls {
         // Créer les contrôles pour les paramètres
         const controls = document.createElement('div');
         controls.className = 'filter-controls';
-
         // Ajouter les contrôles spécifiques au type de filtre
         switch (filter.type) {
             case 'lowpass':
@@ -294,13 +306,22 @@ class UIControls {
                 controls.appendChild(this.createSlider(`q-${filter.id}`, 'Q', filter.q, 0.1, 20, 0.1, '', filter));
                 break;
             case 'bandpass':
-            case 'notch':
-                controls.appendChild(this.createSlider(`frequency-${filter.id}`, 'Freq', filter.frequency, 20, 20000, 1, 'Hz', filter));
-                controls.appendChild(this.createSlider(`q-${filter.id}`, 'Q', filter.q, 0.1, 20, 0.1, '', filter));
+                // Debug: afficher les paramètres du filtre
+                console.log('Création des contrôles pour filtre bandpass:', filter);
+
+                // Créer les contrôles avec des libellés clairement visibles
+                controls.appendChild(this.createSlider(`lowcut-${filter.id}`, 'LOW CUT', filter.lowcut, 20, 10000, 1, 'Hz', filter));
+                controls.appendChild(this.createSlider(`highcut-${filter.id}`, 'HIGH CUT', filter.highcut, 100, 20000, 1, 'Hz', filter));
+                controls.appendChild(this.createSlider(`order-${filter.id}`, 'ORDER', filter.order, 1, 12, 1, '', filter));
                 break;
             case 'gaussian':
                 controls.appendChild(this.createSlider(`frequency-${filter.id}`, 'Freq', filter.frequency, 20, 20000, 1, 'Hz', filter));
                 controls.appendChild(this.createSlider(`width-${filter.id}`, 'Width', filter.width, 1, 1000, 1, 'Hz', filter));
+                break;
+            case 'plateau':
+                controls.appendChild(this.createSlider(`frequency-${filter.id}`, 'Freq', filter.frequency, 20, 20000, 1, 'Hz', filter));
+                controls.appendChild(this.createSlider(`width-${filter.id}`, 'Width', filter.width, 10, 2000, 1, 'Hz', filter));
+                controls.appendChild(this.createSlider(`flatWidth-${filter.id}`, 'Zone plate', filter.flatWidth, 0, 1000, 1, 'Hz', filter));
                 break;
         }
 
@@ -363,6 +384,18 @@ class UIControls {
             const paramName = id.split('-')[0];  // cutoff, q, frequency, etc.
             filter[paramName] = newValue;
 
+            // Log pour debug
+            console.log(`Slider modifié: ${id}, nouvelle valeur: ${newValue}`);
+
+            // Pour les filtres qui nécessitent une mise à jour en temps réel
+            if (filter.type === 'plateau') {
+                // Faire une mise à jour immédiate (cela affecte l'événement filter-update)
+                this._updatePlateauFilterInRealtime(filter, paramName, newValue);
+            } else if (filter.type === 'bandpass') {
+                // Mise à jour pour le filtre bandpass
+                this._updateBandpassFilterInRealtime(filter, paramName, newValue);
+            }
+
             // Informer les autres composants
             const event = new CustomEvent('filter-update', {
                 detail: { filter: filter }
@@ -413,6 +446,106 @@ class UIControls {
         // Désactiver tous les sliders de filtre
         const sliders = this.filterList.querySelectorAll('input[type="range"]');
         sliders.forEach(slider => slider.disabled = true);
+    }
+
+    /**
+     * Met à jour les paramètres d'un filtre Plateau en temps réel
+     * Cette méthode permet d'assurer que les modifications sont immédiatement reflétées
+     * dans le son et la visualisation
+     * @param {Object} filter - Le filtre Plateau à mettre à jour
+     * @param {string} paramName - Le nom du paramètre modifié (frequency, width, flatWidth, gain)
+     * @param {number} newValue - La nouvelle valeur du paramètre
+     */
+    _updatePlateauFilterInRealtime(filter, paramName, newValue) {
+        // Cette méthode est appelée avant l'événement filter-update standard,
+        // ce qui permet d'assurer une réponse en temps réel
+
+        // Rechercher le filtre dans le générateur de bruit
+        if (!window.appEvents || !window.appEvents.noiseGenerator) return;
+
+        const noiseGenerator = window.appEvents.noiseGenerator;
+        const filterIndex = noiseGenerator.filters.findIndex(f =>
+            f.params.id === filter.id && f.params.type === 'plateau');
+
+        if (filterIndex === -1) return;
+
+        // Récupérer l'objet du filtre
+        const filterObject = noiseGenerator.filters[filterIndex].node;
+
+        // Si c'est bien un objet PlateauFilter, utiliser ses méthodes de mise à jour
+        if (filterObject) {
+            try {
+                // Mapper le nom du paramètre à la méthode correspondante
+                switch (paramName) {
+                    case 'frequency':
+                        filterObject.setCenterFreq(newValue);
+                        break;
+                    case 'width':
+                        filterObject.setWidth(newValue);
+                        break;
+                    case 'flatWidth':
+                        filterObject.setFlatWidth(newValue);
+                        break;
+                    case 'gain':
+                        filterObject.setGain(newValue);
+                        break;
+                    default:
+                        console.warn(`Paramètre inconnu pour filtre Plateau: ${paramName}`);
+                }
+
+                // Forcer la mise à jour de la visualisation
+                if (window.appEvents && window.appEvents.updatePlateauVisualization) {
+                    window.appEvents.updatePlateauVisualization(filter);
+                }
+            } catch (error) {
+                console.error("Erreur lors de la mise à jour du filtre Plateau:", error);
+            }
+        }
+    }
+
+    /**
+     * Met à jour les paramètres d'un filtre Bandpass en temps réel
+     * Cette méthode permet d'assurer que les modifications sont immédiatement reflétées
+     * dans le son et la visualisation
+     * @param {Object} filter - Le filtre Bandpass à mettre à jour
+     * @param {string} paramName - Le nom du paramètre modifié (lowcut, highcut, order, gain)
+     * @param {number} newValue - La nouvelle valeur du paramètre
+     */
+    _updateBandpassFilterInRealtime(filter, paramName, newValue) {
+        // Rechercher le filtre dans le générateur de bruit
+        if (!window.appEvents || !window.appEvents.noiseGenerator) return;
+
+        const noiseGenerator = window.appEvents.noiseGenerator;
+        const filterIndex = noiseGenerator.filters.findIndex(f =>
+            f.params.id === filter.id && f.params.type === 'bandpass');
+
+        if (filterIndex === -1) return;
+
+        try {
+            // Informer l'utilisateur que des changements sont en cours
+            console.log(`Mise à jour du paramètre bandpass ${paramName} à ${newValue}`);
+
+            // Stocker l'index pour le retrouver après la reconstruction
+            const savedFilterId = filter.id;
+
+            // Supprimer l'ancien filtre
+            noiseGenerator.removeFilter(filterIndex);
+
+            // Laisser le temps au système audio de traiter la suppression
+            // pour éviter des connexions obsolètes
+            setTimeout(() => {
+                try {
+                    // Recréer le filtre avec les paramètres mis à jour
+                    noiseGenerator.addFilter(filter);
+                    console.log("Filtre bandpass recréé avec succès:", filter);
+                } catch (innerError) {
+                    console.error("Erreur lors de la recréation du filtre Bandpass:", innerError);
+                }
+            }, 50); // Délai plus long pour s'assurer que la suppression est complète
+
+        } catch (error) {
+            console.error("Erreur lors de la mise à jour du filtre Bandpass:", error);
+        }
     }
 
     /**

@@ -287,11 +287,52 @@ class WhiteNoiseGenerator {
     }
 
     /**
+     * Vérifie si le filtre Plateau est disponible
+     * @returns {boolean} True si le filtre est disponible
+     */
+    _checkPlateauFilterAvailable() {
+        return typeof window.PlateauFilter === 'function';
+    }
+
+    /**
      * Ajoute un filtre à la chaîne
      * @param {Object} filterParams - Paramètres du filtre
      */
     addFilter(filterParams) {
-        const filterNode = this.audioContext.createBiquadFilter();
+        let filterNode;
+
+        // Générer un ID unique pour ce filtre si non spécifié
+        if (!filterParams.id) {
+            filterParams.id = 'filter_' + Date.now();
+        }
+
+        // Type particulier : Plateau (filtre personnalisé)
+        if (filterParams.type === 'plateau') {
+            if (this._checkPlateauFilterAvailable()) {
+                // Créer le filtre personnalisé
+                filterNode = new PlateauFilter(this.audioContext);
+
+                // Configurer les paramètres
+                filterNode.setCenterFreq(filterParams.frequency || 1000);
+                filterNode.setWidth(filterParams.width || 200);
+                filterNode.setFlatWidth(filterParams.flatWidth || 100);
+                filterNode.setGain(filterParams.gain || 1.0);
+
+                console.log("Filtre Plateau créé avec succès");
+            } else {
+                console.error("Erreur: Filtre Plateau non disponible");
+                // Utiliser un filtre standard comme fallback
+                filterNode = this.audioContext.createBiquadFilter();
+                filterNode.type = 'bandpass';
+                filterNode.frequency.value = filterParams.frequency || 1000;
+                filterNode.Q.value = 1.0;
+            }
+
+            return this._addFilterToChain(filterNode, filterParams);
+        }
+
+        // Types standard : utiliser BiquadFilterNode
+        filterNode = this.audioContext.createBiquadFilter();
 
         // Configurer le filtre selon son type
         switch (filterParams.type) {
@@ -306,9 +347,67 @@ class WhiteNoiseGenerator {
                 filterNode.Q.value = filterParams.q || 1;
                 break;
             case 'bandpass':
-                filterNode.type = 'bandpass';
-                filterNode.frequency.value = filterParams.frequency || 1000;
-                filterNode.Q.value = filterParams.q || 1;
+                // Implémenter un filtre bandpass en utilisant deux filtres en série (comme dans la version Python)
+                // Créer un filtre passe-bas et un filtre passe-haut connectés en série
+                const lowpassNode = this.audioContext.createBiquadFilter();
+                lowpassNode.type = 'lowpass';
+                lowpassNode.frequency.value = filterParams.highcut || 2000;
+
+                const highpassNode = this.audioContext.createBiquadFilter();
+                highpassNode.type = 'highpass';
+                highpassNode.frequency.value = filterParams.lowcut || 500;
+
+                // Connecter les filtres en série
+                highpassNode.connect(lowpassNode);
+
+                // Configurer l'ordre du filtre - pour un ordre N, nous utilisons N/2 filtres en cascade
+                const order = filterParams.order || 4;
+                let lastNode = lowpassNode;
+
+                // Si order > 2, ajouter des filtres supplémentaires en cascade
+                if (order > 2) {
+                    // Créer des filtres supplémentaires (order/2 - 1 filtres supplémentaires)
+                    const numExtraFilters = Math.floor(order / 2) - 1;
+
+                    for (let i = 0; i < numExtraFilters; i++) {
+                        // Créer une paire supplémentaire de filtres passe-bas et passe-haut
+                        const extraLowpass = this.audioContext.createBiquadFilter();
+                        extraLowpass.type = 'lowpass';
+                        extraLowpass.frequency.value = filterParams.highcut || 2000;
+
+                        const extraHighpass = this.audioContext.createBiquadFilter();
+                        extraHighpass.type = 'highpass';
+                        extraHighpass.frequency.value = filterParams.lowcut || 500;
+
+                        // Connecter à la chaîne
+                        lastNode.connect(extraHighpass);
+                        extraHighpass.connect(extraLowpass);
+                        lastNode = extraLowpass;
+                    }
+                }
+
+                // Utiliser un nœud GainNode pour le gain
+                const gainNode = this.audioContext.createGain();
+                gainNode.gain.value = filterParams.gain || 1.0;
+                lastNode.connect(gainNode);
+
+                // Créer un objet qui représente le filtre composite
+                // Utiliser inputNode/outputNode pour correspondre à l'API des autres filtres personnalisés
+                filterNode = {
+                    inputNode: highpassNode,
+                    outputNode: gainNode,
+                    // Assurer la compatibilité avec l'API de connexion standard
+                    connect: function (destination) {
+                        this.outputNode.connect(destination);
+                    },
+                    disconnect: function () {
+                        // Déconnecter tous les nœuds de la chaîne pour éviter les fuites audio
+                        if (this.outputNode) this.outputNode.disconnect();
+                        if (this.inputNode) this.inputNode.disconnect();
+                    }
+                };
+
+                console.log(`Filtre Bandpass créé avec lowcut: ${filterParams.lowcut}Hz, highcut: ${filterParams.highcut}Hz, order: ${order}, gain: ${filterParams.gain}`);
                 break;
             case 'notch':
                 filterNode.type = 'notch';
@@ -322,6 +421,16 @@ class WhiteNoiseGenerator {
                 filterNode.gain.value = filterParams.gain || 0;
         }
 
+        return this._addFilterToChain(filterNode, filterParams);
+    }
+
+    /**
+     * Ajoute un filtre à la chaîne après sa création
+     * @param {AudioNode} filterNode - Nœud de filtre
+     * @param {Object} filterParams - Paramètres du filtre
+     * @returns {number} - Index du filtre ajouté
+     */
+    _addFilterToChain(filterNode, filterParams) {
         // Ajouter à la liste des filtres
         this.filters.push({
             node: filterNode,
@@ -355,36 +464,70 @@ class WhiteNoiseGenerator {
      * Reconstruit la chaîne de filtres
      */
     _rebuildFilterChain() {
-        if (this.filters.length === 0) {
-            // Si pas de filtres, connecter directement à la sortie
-            if (this.noiseNode) {
-                this.noiseNode.disconnect();
-                this.noiseNode.connect(this.gainNode);
-            }
-            return;
-        }
-
-        // Déconnecter tous les nœuds
+        // Déconnecter tous les nœuds d'abord pour éviter les connexions multiples
         if (this.noiseNode) {
             this.noiseNode.disconnect();
         }
 
         this.filters.forEach(filter => {
-            filter.node.disconnect();
+            if (filter.node.disconnect) {
+                filter.node.disconnect();
+            }
         });
+
+        // Si aucun filtre, connecter directement à la sortie
+        if (this.filters.length === 0) {
+            if (this.noiseNode) {
+                this.noiseNode.connect(this.gainNode);
+            }
+            return;
+        }
 
         // Reconstruire la chaîne
         if (this.noiseNode) {
             // Connecter le nœud de bruit au premier filtre
-            this.noiseNode.connect(this.filters[0].node);
+            const firstFilter = this.filters[0].node;
+
+            // Vérifier si le filtre a une méthode inputNode (cas des filtres personnalisés)
+            if (firstFilter.inputNode) {
+                this.noiseNode.connect(firstFilter.inputNode);
+            } else {
+                // Cas standard pour BiquadFilterNode
+                this.noiseNode.connect(firstFilter);
+            }
 
             // Connecter les filtres en série
             for (let i = 0; i < this.filters.length - 1; i++) {
-                this.filters[i].node.connect(this.filters[i + 1].node);
+                const currentFilter = this.filters[i].node;
+                const nextFilter = this.filters[i + 1].node;
+
+                // Vérifier si les filtres ont des propriétés inputNode/outputNode
+                if (currentFilter.outputNode && nextFilter.inputNode) {
+                    // Si les deux filtres sont personnalisés
+                    currentFilter.outputNode.connect(nextFilter.inputNode);
+                } else if (currentFilter.outputNode) {
+                    // Si le filtre courant est personnalisé mais pas le suivant
+                    currentFilter.outputNode.connect(nextFilter);
+                } else if (nextFilter.inputNode) {
+                    // Si le filtre courant est standard mais pas le suivant
+                    currentFilter.connect(nextFilter.inputNode);
+                } else {
+                    // Si les deux filtres sont standards
+                    currentFilter.connect(nextFilter);
+                }
             }
 
             // Connecter le dernier filtre au gain
-            this.filters[this.filters.length - 1].node.connect(this.gainNode);
+            const lastFilter = this.filters[this.filters.length - 1].node;
+            if (lastFilter.outputNode) {
+                // Si le dernier filtre est personnalisé
+                lastFilter.outputNode.connect(this.gainNode);
+            } else {
+                // Si le dernier filtre est standard
+                lastFilter.connect(this.gainNode);
+            }
+
+            console.log(`Chaîne de filtres reconstruite avec ${this.filters.length} filtre(s)`);
         }
     }
 
