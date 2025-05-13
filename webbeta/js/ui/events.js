@@ -97,9 +97,13 @@ class AppEvents {
             const filter = event.detail.filter;
             this.noiseGenerator.addFilter(filter);
 
-            // Si c'est un filtre Plateau, mettre à jour la visualisation
-            if (filter.type === 'plateau' && this.spectrumRenderer) {
-                this.updatePlateauVisualization(filter);
+            // Initialiser la visualisation selon le type de filtre
+            if (this.spectrumRenderer) {
+                if (filter.type === 'plateau') {
+                    this.updatePlateauVisualization(filter);
+                } else if (filter.type === 'lowpass') {
+                    this.updateLowpassVisualization(filter);
+                }
             }
         });
 
@@ -107,10 +111,14 @@ class AppEvents {
             // La mise à jour est gérée directement par le générateur de bruit
             // via la référence aux filtres
 
-            // Si c'est un filtre Plateau, mettre à jour la visualisation
+            // Mettre à jour la visualisation en fonction du type de filtre
             const filter = event.detail.filter;
-            if (filter && filter.type === 'plateau' && this.spectrumRenderer) {
-                this.updatePlateauVisualization(filter);
+            if (filter && this.spectrumRenderer) {
+                if (filter.type === 'plateau') {
+                    this.updatePlateauVisualization(filter);
+                } else if (filter.type === 'lowpass') {
+                    this.updateLowpassVisualization(filter);
+                }
             }
         });
 
@@ -120,18 +128,20 @@ class AppEvents {
             const filterId = event.detail.filterId;
             const filterIndex = this.noiseGenerator.filters.findIndex(f => f.params.id === filterId);
 
-            // Vérifier si c'est un filtre Plateau avant de le supprimer
-            const isPlateauFilter = filterIndex !== -1 &&
-                this.noiseGenerator.filters[filterIndex].params.type === 'plateau';
+            if (filterIndex === -1) return;
 
-            if (filterIndex !== -1) {
-                this.noiseGenerator.removeFilter(filterIndex);
+            // Vérifier le type du filtre avant de le supprimer
+            const filterType = this.noiseGenerator.filters[filterIndex].params.type;
+            const shouldClearVisualization = filterType === 'plateau' || filterType === 'lowpass';
 
-                // Si c'était un filtre Plateau, effacer la visualisation
-                if (isPlateauFilter && this.spectrumRenderer) {
-                    this.spectrumRenderer.setFilterResponse(null);
-                    this.spectrumRenderer.render();
-                }
+            // Supprimer le filtre
+            this.noiseGenerator.removeFilter(filterIndex);
+
+            // Effacer la visualisation si nécessaire
+            if (shouldClearVisualization && this.spectrumRenderer) {
+                this.spectrumRenderer.setFilterResponse(null);
+                this.spectrumRenderer.render();
+                console.log(`Visualisation du filtre ${filterType} effacée`);
             }
         });
 
@@ -260,6 +270,64 @@ class AppEvents {
         this.spectrumRenderer.render();
 
         console.log("Visualisation du filtre Plateau mise à jour:", filterResponse);
+    }
+
+    /**
+     * Met à jour la visualisation d'un filtre Lowpass
+     * @param {Object} lowpassFilter - Paramètres du filtre Lowpass
+     */
+    updateLowpassVisualization(lowpassFilter) {
+        if (!this.spectrumRenderer || !lowpassFilter) return;
+
+        // Récupérer une référence au filtre dans le générateur de bruit
+        const filterIndex = this.noiseGenerator.filters.findIndex(f =>
+            f.params.id === lowpassFilter.id && f.params.type === 'lowpass');
+
+        if (filterIndex === -1) return;
+
+        // Récupérer l'objet du filtre depuis le générateur de bruit
+        const filterObject = this.noiseGenerator.filters[filterIndex].node;
+
+        if (!filterObject) return;
+
+        // Calculer la réponse en fréquence du filtre
+        const frequencies = [];
+        const magnitudes = [];
+        const numPoints = 1000;
+        const minFreq = 20;
+        const maxFreq = 20000;
+
+        // Fréquence de coupure et facteur Q du filtre
+        const cutoff = lowpassFilter.cutoff || 1000;
+        const q = lowpassFilter.q || 1.0;
+        const gain = lowpassFilter.gain || 1.0;
+
+        // Créer une réponse en fréquence pour le filtre lowpass
+        for (let i = 0; i < numPoints; i++) {
+            const freq = minFreq * Math.pow(maxFreq / minFreq, i / (numPoints - 1));
+            frequencies.push(freq);
+
+            // Approximation de la réponse d'un filtre butterworth lowpass
+            // Pour un filtre lowpass simple, la réponse est proche de 1 pour f < cutoff 
+            // et décroît à un taux de 6dB/octave * ordre après cutoff
+            const normalizedFreq = freq / cutoff;
+            let response = 1.0 / Math.sqrt(1.0 + Math.pow(normalizedFreq, 4));
+
+            // Ajuster la pente avec le facteur Q
+            response = response * Math.pow(q, 0.5);
+
+            // Appliquer le gain
+            magnitudes.push(response * gain);
+        }
+
+        // Créer l'objet de réponse en fréquence
+        const filterResponse = { frequencies, magnitudes };
+
+        // Mettre à jour la visualisation
+        this.spectrumRenderer.setFilterResponse(filterResponse);
+        this.spectrumRenderer.render();
+
+        console.log("Visualisation du filtre Lowpass mise à jour:", filterResponse);
     }
 
     /**

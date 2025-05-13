@@ -394,6 +394,9 @@ class UIControls {
             } else if (filter.type === 'bandpass') {
                 // Mise à jour pour le filtre bandpass
                 this._updateBandpassFilterInRealtime(filter, paramName, newValue);
+            } else if (filter.type === 'lowpass') {
+                // Mise à jour pour le filtre lowpass
+                this._updateLowpassFilterInRealtime(filter, paramName, newValue);
             }
 
             // Informer les autres composants
@@ -545,6 +548,59 @@ class UIControls {
 
         } catch (error) {
             console.error("Erreur lors de la mise à jour du filtre Bandpass:", error);
+        }
+    }
+
+    /**
+     * Met à jour les paramètres d'un filtre Lowpass en temps réel
+     * Cette méthode permet d'assurer que les modifications sont immédiatement reflétées
+     * dans le son et la visualisation
+     * @param {Object} filter - Le filtre Lowpass à mettre à jour
+     * @param {string} paramName - Le nom du paramètre modifié (cutoff, q, gain)
+     * @param {number} newValue - La nouvelle valeur du paramètre
+     */
+    _updateLowpassFilterInRealtime(filter, paramName, newValue) {
+        // Rechercher le filtre dans le générateur de bruit
+        if (!window.appEvents || !window.appEvents.noiseGenerator) return;
+
+        const noiseGenerator = window.appEvents.noiseGenerator;
+        const filterIndex = noiseGenerator.filters.findIndex(f =>
+            f.params.id === filter.id && f.params.type === 'lowpass');
+
+        if (filterIndex === -1) return;
+
+        // Récupérer le filtre
+        const filterObject = noiseGenerator.filters[filterIndex].node;
+
+        if (!filterObject) return;
+
+        try {
+            // Informer l'utilisateur que des changements sont en cours
+            console.log(`Mise à jour du paramètre lowpass ${paramName} à ${newValue}`);
+
+            // Mise à jour directe du paramètre du filtre BiquadFilterNode
+            switch (paramName) {
+                case 'cutoff':
+                    filterObject.frequency.value = newValue;
+                    break;
+                case 'q':
+                    filterObject.Q.value = newValue;
+                    break;
+                case 'gain':
+                    filterObject.gain.value = newValue;
+                    break;
+                default:
+                    console.warn(`Paramètre inconnu pour filtre Lowpass: ${paramName}`);
+            }
+
+            // Forcer la mise à jour de la visualisation
+            if (window.appEvents && window.appEvents.updateLowpassVisualization) {
+                window.appEvents.updateLowpassVisualization(filter);
+            }
+
+            console.log(`Filtre lowpass mis à jour avec succès: ${paramName}=${newValue}`);
+        } catch (error) {
+            console.error("Erreur lors de la mise à jour du filtre Lowpass:", error);
         }
     }
 
